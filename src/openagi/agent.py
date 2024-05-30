@@ -1,11 +1,10 @@
-from enum import Enum
 import logging
+from enum import Enum
 from typing import Any, List, Optional, Union
 
 from pydantic import BaseModel, Field, field_validator
 
 from openagi.actions.base import BaseAction
-from openagi.actions.compressor import SummarizerAction
 from openagi.actions.formatter import FormatterAction
 from openagi.actions.obs_rag import MemoryRagAction
 from openagi.exception import ExecutionFailureException, OpenAGIException
@@ -20,6 +19,7 @@ from openagi.utils.extraction import (
     get_classes_from_json,
     get_last_json,
 )
+from openagi.utils.helper import get_default_llm
 
 
 class OutputFormat(str, Enum):
@@ -32,7 +32,7 @@ class Admin(BaseModel):
         default=TaskPlanner(),
         description="Type of planner to use for task decomposition.",
     )
-    llm: LLMBaseModel = Field(
+    llm: Optional[LLMBaseModel] = Field(
         description="LLM Model to be used.",
     )
     memory: Optional[Memory] = Field(
@@ -59,10 +59,12 @@ class Admin(BaseModel):
         if not self.memory:
             self.memory = Memory()
 
-        # Actions
-        # self.actions = self.actions or []
-        # default_actions = [MemoryRagAction]
-        # self.actions.extend(default_actions)
+        if not self.llm:
+            self.llm = get_default_llm()
+
+        self.actions = self.actions or []
+        default_actions = [MemoryRagAction]
+        self.actions.extend(default_actions)
 
         return resp
 
@@ -94,7 +96,7 @@ class Admin(BaseModel):
 
     def run(self, query: str, description: str):
         logging.info("Running Admin Agent...")
-        logging.info(f"SessionID - {self.memory.sessiond_id}")
+        logging.info(f"SessionID - {self.memory.session_id}")
 
         # Planning stage to create list of tasks
         planned_tasks = self.run_planner(query=query, descripton=description)
@@ -129,8 +131,9 @@ class Admin(BaseModel):
                 cur_task.result = str(res)
                 cur_task.actions = str(actions)
                 prev_task = cur_task.model_copy()
-                self.memory.save_task(prev_task)
+                self.memory.update_task(prev_task)
             steps += 1
+
         # Final result
         logging.info("Finished Execution...")
         # print(f"\n ******** Final Response *******\n{res}\n\n")
@@ -143,7 +146,7 @@ class Admin(BaseModel):
                 memory=self.memory,
             )
             res = output_formatter.execute()
-        logging.debug(f"Execution Completed for Session ID - {self.memory.sessiond_id}")
+        logging.debug(f"Execution Completed for Session ID - {self.memory.session_id}")
         return res
 
     def _run_action(self, action_cls: str, **kwargs):
@@ -168,6 +171,7 @@ class Admin(BaseModel):
         prev_task: Task,
     ):
         logging.info(f"{'>'*10} Starting execution of `{task.name} [{task.id}]` {'<'*10}")
+        logging.info(f"Description - {task.description}")
         # Get supported actions and convert to array of dict(actions)
         actions_dict: List[BaseAction] = []
         for act in self.actions:

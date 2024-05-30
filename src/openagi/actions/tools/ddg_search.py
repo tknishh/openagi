@@ -1,3 +1,4 @@
+import json
 from typing import Any
 from openagi.actions.base import BaseAction
 from pydantic import Field
@@ -5,7 +6,7 @@ from duckduckgo_search import DDGS
 
 
 class DuckDuckGoSearch(BaseAction):
-    """Search Tool to fetch results from  DuckDuckGo"""
+    """Use this Action to search DuckDuckGo for a query."""
 
     name: str = Field(
         default_factory=str,
@@ -26,9 +27,22 @@ class DuckDuckGoSearch(BaseAction):
         description="Total results, in int, to be executed from the search. Defaults to 10.",
     )
 
+    def _get_ddgs(self):
+        return DDGS()
+
     def execute(self):
-        result = DDGS().text(
+        result = self._get_ddgs().text(
             self.query,
             max_results=self.max_results,
         )
-        return result
+        return json.dumps(result)
+
+
+class DuckDuckGoNewsSearch(DuckDuckGoSearch):
+    """Use this Action to get the latest news from DuckDuckGo."""
+
+    def execute(self):
+        ddgs = self._get_ddgs()
+        return json.dumps(
+            ddgs.news(keywords=self.query, max_results=(self.max_results)), indent=2
+        )
